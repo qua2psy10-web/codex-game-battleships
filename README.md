@@ -2,6 +2,12 @@
 
 現代の実在艦名を使用した、ブラウザ向け艦隊戦術ゲームの試作版です。多国籍合同演習を舞台に、BLUE CELLの艦船を指揮してORANGE CELLを無力化します。
 
+## ブラウザでプレイ
+
+[PACIFIC SHIELDを起動](https://qua2psy10-web.github.io/codex-game-battleships/)
+
+GitHub Pages版はインストール不要です。リンクを開き、作戦と難易度を選択して「作戦開始」を押してください。
+
 ## 起動
 
 ```bash

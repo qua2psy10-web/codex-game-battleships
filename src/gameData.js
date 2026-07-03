@@ -1,8 +1,10 @@
+const assetUrl = fileName => `${import.meta.env.BASE_URL}assets/${fileName}`;
+
 export const SHIPS = [
   {
     id: 'ford', side: 'blue', country: 'アメリカ', flag: '🇺🇸', code: 'CVN-78',
     name: 'USS GERALD R. FORD', className: 'Gerald R. Ford級 航空母艦',
-    role: '航空母艦', asset: '/assets/ship-carrier.png', hp: 14000, maxHp: 14000,
+    role: '航空母艦', asset: assetUrl('ship-carrier.png'), hp: 14000, maxHp: 14000,
     speed: 22, maxSpeed: 30, heading: 62, x: 35, y: 58, scale: 1.28,
     sensorRange: 27, sonarRange: 18,
     crew: '4,539名', radar: 'AN/SPY-3', sonar: 'AN/SQQ-89', ew: 'SLQ-32',
@@ -11,7 +13,7 @@ export const SHIPS = [
   {
     id: 'burke', side: 'blue', country: 'アメリカ', flag: '🇺🇸', code: 'DDG-51',
     name: 'USS ARLEIGH BURKE', className: 'Arleigh Burke級 ミサイル駆逐艦',
-    role: 'ミサイル駆逐艦', asset: '/assets/ship-burke.png', hp: 8900, maxHp: 8900,
+    role: 'ミサイル駆逐艦', asset: assetUrl('ship-burke.png'), hp: 8900, maxHp: 8900,
     speed: 26, maxSpeed: 31, heading: 65, x: 57, y: 68, scale: .82,
     sensorRange: 32, sonarRange: 28,
     crew: '329名', radar: 'AN/SPY-1D', sonar: 'AN/SQS-53', ew: 'SLQ-32',
@@ -20,7 +22,7 @@ export const SHIPS = [
   {
     id: 'maya', side: 'blue', country: '日本', flag: '🇯🇵', code: 'DDG-179',
     name: 'JS MAYA', className: 'まや型 護衛艦', role: 'イージス護衛艦',
-    asset: '/assets/ship-maya.png', hp: 9400, maxHp: 9400,
+    asset: assetUrl('ship-maya.png'), hp: 9400, maxHp: 9400,
     speed: 24, maxSpeed: 30, heading: 58, x: 47, y: 43, scale: .78,
     sensorRange: 35, sonarRange: 27,
     crew: '約300名', radar: 'SPY-1D(V)', sonar: 'OQQ-24', ew: 'NOLQ-2C',
@@ -29,7 +31,7 @@ export const SHIPS = [
   {
     id: 'aquitaine', side: 'blue', country: 'フランス', flag: '🇫🇷', code: 'D650',
     name: 'FS AQUITAINE', className: 'Aquitaine級 フリゲート', role: '対潜フリゲート',
-    asset: '/assets/ship-frigate.png', hp: 7200, maxHp: 7200,
+    asset: assetUrl('ship-frigate.png'), hp: 7200, maxHp: 7200,
     speed: 20, maxSpeed: 27, heading: 70, x: 67, y: 48, scale: .68,
     sensorRange: 30, sonarRange: 36,
     crew: '145名', radar: 'HERAKLES', sonar: 'CAPTAS-4', ew: 'SENTINEL',
@@ -38,7 +40,7 @@ export const SHIPS = [
   {
     id: 'oryu', side: 'blue', country: '日本', flag: '🇯🇵', code: 'SS-511',
     name: 'JS ORYU', className: 'そうりゅう型 潜水艦', role: '攻撃型潜水艦',
-    asset: '/assets/ship-submarine.png', hp: 5200, maxHp: 5200,
+    asset: assetUrl('ship-submarine.png'), hp: 5200, maxHp: 5200,
     speed: 18, maxSpeed: 20, heading: 52, x: 25, y: 76, scale: .62,
     sensorRange: 23, sonarRange: 34, submarine: true, depthMode: 'deep', silent: true,
     crew: '65名', radar: 'ZPS-6F', sonar: 'ZQQ-7B', ew: '潜航中',
@@ -47,37 +49,37 @@ export const SHIPS = [
   {
     id: 'queen', side: 'orange', country: 'イギリス', flag: '🇬🇧', code: 'R08',
     name: 'HMS QUEEN ELIZABETH', className: 'Queen Elizabeth級 航空母艦', role: '演習対抗艦',
-    asset: '/assets/ship-carrier.png', hp: 100, maxHp: 100, speed: 18, maxSpeed: 25,
+    asset: assetUrl('ship-carrier.png'), hp: 100, maxHp: 100, speed: 18, maxSpeed: 25,
     heading: 238, x: 77, y: 26, scale: .64,
   },
   {
     id: 'daring', side: 'orange', country: 'イギリス', flag: '🇬🇧', code: 'D32',
     name: 'HMS DARING', className: 'Type 45 駆逐艦', role: '演習対抗艦',
-    asset: '/assets/ship-maya.png', hp: 100, maxHp: 100, speed: 22, maxSpeed: 29,
+    asset: assetUrl('ship-maya.png'), hp: 100, maxHp: 100, speed: 22, maxSpeed: 29,
     heading: 232, x: 71, y: 34, scale: .48,
   },
   {
     id: 'brisbane', side: 'orange', country: 'オーストラリア', flag: '🇦🇺', code: 'DDG-41',
     name: 'HMAS BRISBANE', className: 'Hobart級 駆逐艦', role: '演習対抗艦',
-    asset: '/assets/ship-burke.png', hp: 100, maxHp: 100, speed: 24, maxSpeed: 28,
+    asset: assetUrl('ship-burke.png'), hp: 100, maxHp: 100, speed: 24, maxSpeed: 28,
     heading: 244, x: 82, y: 41, scale: .48,
   },
   {
     id: 'alsace', side: 'orange', country: 'フランス', flag: '🇫🇷', code: 'D656',
     name: 'FS ALSACE', className: 'Aquitaine級 フリゲート', role: '演習対抗艦',
-    asset: '/assets/ship-frigate.png', hp: 100, maxHp: 100, speed: 20, maxSpeed: 27,
+    asset: assetUrl('ship-frigate.png'), hp: 100, maxHp: 100, speed: 20, maxSpeed: 27,
     heading: 226, x: 65, y: 23, scale: .42,
   },
   {
     id: 'nanchang', side: 'orange', country: '中国', flag: '🇨🇳', code: '101',
     name: 'CNS NANCHANG', className: 'Type 055 大型駆逐艦', role: '演習対抗艦',
-    asset: '/assets/ship-type055.png', hp: 100, maxHp: 100, speed: 23, maxSpeed: 30,
+    asset: assetUrl('ship-type055.png'), hp: 100, maxHp: 100, speed: 23, maxSpeed: 30,
     heading: 240, x: 88, y: 20, scale: .45,
   },
   {
     id: 'dosan', side: 'orange', country: '韓国', flag: '🇰🇷', code: 'SS-083',
     name: 'ROKS DOSAN AHN CHANGHO', className: 'Dosan Ahn Changho級 潜水艦', role: '演習対抗潜水艦',
-    asset: '/assets/ship-submarine.png', hp: 100, maxHp: 100, speed: 10, maxSpeed: 20,
+    asset: assetUrl('ship-submarine.png'), hp: 100, maxHp: 100, speed: 10, maxSpeed: 20,
     heading: 276, x: 48, y: 83, scale: .52, submarine: true, depthMode: 'deep', silent: true,
     acoustic: .3,
   },
