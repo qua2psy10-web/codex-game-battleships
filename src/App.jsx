@@ -1,5 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SHIPS, SPEED_STEPS } from './gameData';
+import { createAudioEngine } from './audioEngine';
+import { cloudSyncConfigured, downloadCloudState, getCloudClient, sendMagicLink, signOutCloud, uploadCloudState } from './cloudSync';
 
 const Icon = ({ name, size = 18 }) => {
   const common = { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true };
@@ -18,6 +20,9 @@ const Icon = ({ name, size = 18 }) => {
   if (name === 'missile') return <svg {...common}><path d="m14 4 6 6-9 9-5 1 1-5Z"/><path d="m14 4-3 7 7-3M7 15l-3-3M9 18l-3 3"/></svg>;
   if (name === 'aircraft') return <svg {...common}><path d="m12 3 2.2 6.2 6.8 3.3v2l-6.8-1.1-.8 5 2.6 1.7V21l-4-1-4 1v-.9l2.6-1.7-.8-5L3 14.5v-2l6.8-3.3Z"/></svg>;
   if (name === 'sonar') return <svg {...common}><circle cx="12" cy="12" r="2"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.6 4.6a10.5 10.5 0 0 0 0 14.8M19.4 4.6a10.5 10.5 0 0 1 0 14.8"/></svg>;
+  if (name === 'audio') return <svg {...common}><path d="M5 10v4h3l4 3V7L8 10Z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>;
+  if (name === 'muted') return <svg {...common}><path d="M5 10v4h3l4 3V7L8 10Z"/><path d="m16 10 5 5M21 10l-5 5"/></svg>;
+  if (name === 'save') return <svg {...common}><path d="M5 4h12l2 2v14H5Z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/></svg>;
   return null;
 };
 
@@ -107,6 +112,8 @@ const CAMPAIGN_OPERATIONS = [
   { id: 'pacific_crown', code: 'CP-05', name: '太平洋の冠', callSign: 'PACIFIC CROWN', scenarioId: 'pacific', difficultyId: 'admiral', bonus: 1.4, detail: '全戦力を投入する最終決戦で完全な制海権を確立する。' },
 ];
 const PROFILE_STORAGE_KEY = 'pacific-shield.profile.v1';
+const AUDIO_STORAGE_KEY = 'pacific-shield.audio.v1';
+const BATTLE_STORAGE_KEY = 'pacific-shield.battle.v1';
 const DEFAULT_PROFILE = {
   version: 1, xp: 0, credits: 2, missions: 0, victories: 0, totalScore: 0, bestScore: 0,
   medals: [], completed: {}, upgrades: { weapons: 0, defense: 0, damage: 0 }, campaign: { completed: [], stars: {} }, tutorialSeen: false,
@@ -140,12 +147,9 @@ const rankForXp = (xp) => {
   if (xp >= 300) return { name: 'LIEUTENANT', label: '大尉', next: 700 };
   return { name: 'CADET', label: '士官候補生', next: 300 };
 };
-const loadProfile = () => {
-  if (typeof window === 'undefined') return DEFAULT_PROFILE;
-  try {
-    const stored = JSON.parse(window.localStorage.getItem(PROFILE_STORAGE_KEY));
-    if (!stored || stored.version !== 1) return DEFAULT_PROFILE;
-    return {
+const normalizeProfile = stored => {
+  if (!stored || stored.version !== 1) return DEFAULT_PROFILE;
+  return {
       ...DEFAULT_PROFILE, ...stored,
       medals: Array.isArray(stored.medals) ? stored.medals.filter(id => MEDALS[id]) : [],
       completed: stored.completed && typeof stored.completed === 'object' ? stored.completed : {},
@@ -155,8 +159,28 @@ const loadProfile = () => {
         stars: stored.campaign?.stars && typeof stored.campaign.stars === 'object' ? stored.campaign.stars : {},
       },
     };
+};
+const loadProfile = () => {
+  if (typeof window === 'undefined') return DEFAULT_PROFILE;
+  try {
+    return normalizeProfile(JSON.parse(window.localStorage.getItem(PROFILE_STORAGE_KEY)));
   } catch { return DEFAULT_PROFILE; }
 };
+const loadAudioPreference = () => {
+  if (typeof window === 'undefined') return true;
+  return window.localStorage.getItem(AUDIO_STORAGE_KEY) !== 'muted';
+};
+const normalizeSavedBattle = stored => {
+  if (!stored || stored.version !== 1 || !Number.isFinite(stored.savedAt) || !stored.payload) return null;
+  if (!SCENARIOS[stored.payload.scenarioId] || !DIFFICULTIES[stored.payload.difficultyId] || !Array.isArray(stored.payload.ships)) return null;
+  return stored;
+};
+const loadSavedBattle = () => {
+  if (typeof window === 'undefined') return null;
+  try { return normalizeSavedBattle(JSON.parse(window.localStorage.getItem(BATTLE_STORAGE_KEY))); }
+  catch { return null; }
+};
+const formatMissionTime = seconds => `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 const upgradeCost = level => level >= 3 ? null : level + 2;
 const startingDefense = level => ({ interceptors: 8 + level * 2, ew: 100 + level * 15, decoys: 4 + level });
 const startingDamageControl = level => ({ foam: 100 + level * 15, pumps: 100 + level * 15, spares: 3 + level });
@@ -519,7 +543,30 @@ const CareerPanel = memo(({ profile, onUpgrade }) => {
   );
 });
 
-const ScenarioBriefing = memo(({ scenarioId, difficultyId, activeCampaignId, profile, onScenario, onDifficulty, onCampaign, onUpgrade, onTutorial, onStart }) => {
+const CloudSyncPanel = memo(({ configured, session, busy, message, lastSyncedAt, onSignIn, onSignOut, onUpload, onDownload }) => {
+  const [email, setEmail] = useState('');
+  const submitEmail = event => {
+    event.preventDefault();
+    const normalizedEmail = email.trim();
+    if (normalizedEmail) onSignIn(normalizedEmail);
+  };
+  return (
+    <section className={`cloud-sync-panel ${session ? 'connected' : ''}`} aria-label="クラウド同期">
+      <header><span>CLOUD SYNC</span><i/><b>{!configured ? 'SETUP REQUIRED' : session ? 'CONNECTED' : 'SIGNED OUT'}</b></header>
+      {!configured ? <div className="cloud-unconfigured"><Icon name="save" size={20}/><span><strong>クラウド接続情報が未設定です</strong><small>SupabaseのURLと公開キーを設定すると、端末間で戦績と戦闘保存を同期できます。</small></span></div> : session ? <div className="cloud-account">
+        <div><strong>{session.user.email}</strong><small>{lastSyncedAt ? `最終同期 ${new Date(lastSyncedAt).toLocaleString('ja-JP')}` : '同期データはまだありません'}</small></div>
+        <div className="cloud-actions"><button onClick={() => onUpload()} disabled={busy}><Icon name="save" size={15}/>クラウドへ保存</button><button onClick={() => onDownload()} disabled={busy}><Icon name="restart" size={15}/>クラウドから復元</button><button className="cloud-signout" onClick={() => onSignOut()} disabled={busy}>ログアウト</button></div>
+      </div> : <form className="cloud-signin" onSubmit={submitEmail}>
+        <div><strong>メールでサインイン</strong><small>Magic Linkを送信します。パスワードは不要です。</small></div>
+        <input type="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="commander@example.com" aria-label="クラウド同期用メールアドレス" required disabled={busy}/>
+        <button type="submit" disabled={busy || !email.trim()}>{busy ? '送信中…' : 'リンクを送信'}</button>
+      </form>}
+      {message ? <p className="cloud-message" role="status">{message}</p> : null}
+    </section>
+  );
+});
+
+const ScenarioBriefing = memo(({ scenarioId, difficultyId, activeCampaignId, profile, savedBattle, cloud, onScenario, onDifficulty, onCampaign, onUpgrade, onTutorial, onStart, onResume }) => {
   const scenario = SCENARIOS[scenarioId];
   const difficulty = DIFFICULTIES[difficultyId];
   const campaignOperation = CAMPAIGN_OPERATIONS.find(operation => operation.id === activeCampaignId);
@@ -531,6 +578,11 @@ const ScenarioBriefing = memo(({ scenarioId, difficultyId, activeCampaignId, pro
           <b>OPERATION BRIEFING</b>
         </header>
         <div className="briefing-intro"><span>作戦を選択</span><p>実在する艦艇で構成されたBLUE CELLを指揮し、指定された任務目標を達成してください。</p></div>
+        {savedBattle ? <section className="resume-mission" aria-label="保存した戦闘">
+          <div><span>SAVED TACTICAL STATE</span><strong>{SCENARIOS[savedBattle.payload.scenarioId]?.name ?? '保存作戦'}</strong><small>戦術時間 {formatMissionTime(savedBattle.payload.clock ?? 0)} · 得点 {savedBattle.payload.score ?? 0} · {new Date(savedBattle.savedAt).toLocaleString('ja-JP')}</small></div>
+          <button className="resume-button" onClick={onResume}><Icon name="play" size={19}/><span>戦闘を再開</span><small>一時停止状態で復元</small></button>
+        </section> : null}
+        <CloudSyncPanel {...cloud} />
         <div className="scenario-grid">
           {Object.values(SCENARIOS).map(item => (
             <button key={item.id} className={`scenario-card ${scenarioId === item.id ? 'selected' : ''}`} onClick={() => onScenario(item.id)} aria-label={`${item.name}を選択`}>
@@ -594,7 +646,13 @@ export default function App() {
   const [aswStats, setAswStats] = useState({ pings: 0, contacts: 0 });
   const [damageControl, setDamageControl] = useState(() => startingDamageControl(profile.upgrades.damage));
   const [dcCooldown, setDcCooldown] = useState(0);
-  const audioRef = useRef(null);
+  const [audioEnabled, setAudioEnabled] = useState(loadAudioPreference);
+  const [savedBattle, setSavedBattle] = useState(loadSavedBattle);
+  const [cloudSession, setCloudSession] = useState(null);
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudMessage, setCloudMessage] = useState('');
+  const [cloudLastSyncedAt, setCloudLastSyncedAt] = useState(null);
+  const [audioEngine] = useState(createAudioEngine);
   const resolvedThreatsRef = useRef(new Set());
   const resolvedSortiesRef = useRef(new Set());
   const missionRecordedRef = useRef(false);
@@ -669,6 +727,65 @@ export default function App() {
   useEffect(() => {
     try { window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profile)); } catch { /* private browsing or storage quota */ }
   }, [profile]);
+
+  useEffect(() => {
+    if (!cloudSyncConfigured) return undefined;
+    let active = true;
+    let subscription = null;
+    getCloudClient().then(async client => {
+      if (!active || !client) return;
+      const { data, error } = await client.auth.getSession();
+      if (!active) return;
+      if (error) setCloudMessage(`認証状態を確認できません: ${error.message}`);
+      else setCloudSession(data.session);
+      const { data: listener } = client.auth.onAuthStateChange((_event, session) => {
+        if (active) setCloudSession(session);
+      });
+      subscription = listener.subscription;
+    });
+    return () => {
+      active = false;
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    audioEngine.setMuted(!audioEnabled);
+    try { window.localStorage.setItem(AUDIO_STORAGE_KEY, audioEnabled ? 'enabled' : 'muted'); } catch { /* private browsing or storage quota */ }
+  }, [audioEnabled, audioEngine]);
+
+  useEffect(() => {
+    if (audioEnabled && !briefingOpen && !paused && status === 'active') audioEngine.startAmbience();
+    else audioEngine.stopAmbience();
+  }, [audioEnabled, audioEngine, briefingOpen, paused, status]);
+
+  useEffect(() => () => audioEngine.dispose(), [audioEngine]);
+
+  useEffect(() => {
+    if (!shot) return undefined;
+    audioEngine.play('launch');
+    const timer = window.setTimeout(() => audioEngine.play(shot.hit ? 'impact' : 'miss'), 980);
+    return () => window.clearTimeout(timer);
+  }, [audioEngine, shot?.id]);
+
+  useEffect(() => {
+    if (incomingThreat) audioEngine.play('warning');
+  }, [audioEngine, incomingThreat?.id]);
+
+  useEffect(() => {
+    if (!defenseEffect) return;
+    if (defenseEffect.type === 'impact') audioEngine.play('impact');
+    else if (defenseEffect.type === 'intercept' || defenseEffect.type === 'air-intercept') audioEngine.play('intercept');
+    else audioEngine.play('miss');
+  }, [audioEngine, defenseEffect?.id, defenseEffect?.type]);
+
+  useEffect(() => {
+    if (airWing.status === 'launching') audioEngine.play('jet');
+  }, [audioEngine, airWing.sortieId, airWing.status]);
+
+  useEffect(() => {
+    if (!briefingOpen && status !== 'active') audioEngine.play(status === 'victory' ? 'victory' : 'defeat');
+  }, [audioEngine, briefingOpen, status]);
 
   useEffect(() => {
     if (briefingOpen || status === 'active' || missionRecordedRef.current) return;
@@ -808,7 +925,7 @@ export default function App() {
     const timer = window.setTimeout(() => {
       setShot(null);
       setAirWing(current => current.sortieId === airWing.sortieId ? { ...current, status: 'returning', phase: 0 } : current);
-    }, 1050);
+    }, 2000);
     return () => window.clearTimeout(timer);
   }, [airWing.status, airWing.sortieId, airWing.targetId, airWing.x, airWing.y, profile.upgrades.weapons]);
 
@@ -1020,19 +1137,21 @@ export default function App() {
     setAswStats(current => ({ pings: current.pings + 1, contacts: current.contacts + (nearestSub && nearestDistance <= 72 ? 1 : 0) }));
     setSelectedId('oryu');
     setWeaponId('type89');
+    audioEngine.play('sonar');
     if (nearestSub && nearestDistance <= 72) {
       setTargetId(nearestSub.id);
       setEvent(`アクティブソナー送信 — ${nearestSub.code}の音紋を捕捉、魚雷攻撃諸元を生成`);
     } else {
       setEvent('アクティブソナー送信 — 有効圏内に潜水艦反応なし');
     }
-  }, [oryu, sonarCooldown, aliveEnemies]);
+  }, [oryu, sonarCooldown, aliveEnemies, audioEngine]);
 
   const startDamageDrill = useCallback(() => {
     if (dcCooldown > 0 || selected.hp <= 0 || (selected.fire ?? 0) > 0 || (selected.flooding ?? 0) > 0 || selected.hp < selected.maxHp) return;
     updateSelected(ship => ({ ...ship, hp: Math.max(1, ship.hp - Math.round(ship.maxHp * .035)), fire: 48, flooding: 32 }));
     setEvent(`${selected.code} 損傷統制訓練開始 — 機関区火災・二区画浸水を付与`);
-  }, [dcCooldown, selected, updateSelected]);
+    audioEngine.play('warning');
+  }, [dcCooldown, selected, updateSelected, audioEngine]);
 
   const extinguishFire = useCallback(() => {
     if (dcCooldown > 0 || (selected.fire ?? 0) <= 0 || damageControl.foam < 20) return;
@@ -1040,7 +1159,8 @@ export default function App() {
     updateSelected(ship => ({ ...ship, fire: Math.max(0, (ship.fire ?? 0) - 44 * (1 + profile.upgrades.damage * .15)) }));
     setDcCooldown(2);
     setEvent(`${selected.code} 消火班投入 — 火災を局限`);
-  }, [dcCooldown, selected, damageControl.foam, updateSelected, profile.upgrades.damage]);
+    audioEngine.play('repair');
+  }, [dcCooldown, selected, damageControl.foam, updateSelected, profile.upgrades.damage, audioEngine]);
 
   const dewaterShip = useCallback(() => {
     if (dcCooldown > 0 || (selected.flooding ?? 0) <= 0 || damageControl.pumps < 20) return;
@@ -1048,7 +1168,8 @@ export default function App() {
     updateSelected(ship => ({ ...ship, flooding: Math.max(0, (ship.flooding ?? 0) - 36 * (1 + profile.upgrades.damage * .15)) }));
     setDcCooldown(2);
     setEvent(`${selected.code} 排水ポンプ始動 — 浸水区画を安定化`);
-  }, [dcCooldown, selected, damageControl.pumps, updateSelected, profile.upgrades.damage]);
+    audioEngine.play('repair');
+  }, [dcCooldown, selected, damageControl.pumps, updateSelected, profile.upgrades.damage, audioEngine]);
 
   const emergencyRepair = useCallback(() => {
     if (dcCooldown > 0 || damageControl.spares <= 0 || ((selected.fire ?? 0) <= 0 && (selected.flooding ?? 0) <= 0 && selected.hp >= selected.maxHp)) return;
@@ -1056,7 +1177,8 @@ export default function App() {
     updateSelected(ship => ({ ...ship, hp: Math.min(ship.maxHp, ship.hp + Math.round(ship.maxHp * (.085 + profile.upgrades.damage * .018))), fire: Math.max(0, (ship.fire ?? 0) - 12), flooding: Math.max(0, (ship.flooding ?? 0) - 10) }));
     setDcCooldown(3);
     setEvent(`${selected.code} 応急修理完了 — 推進・センサー系統を復旧`);
-  }, [dcCooldown, selected, damageControl.spares, updateSelected, profile.upgrades.damage]);
+    audioEngine.play('repair');
+  }, [dcCooldown, selected, damageControl.spares, updateSelected, profile.upgrades.damage, audioEngine]);
 
   const launchAirMission = useCallback((mission) => {
     const home = ships.find(ship => ship.id === 'ford');
@@ -1110,26 +1232,16 @@ export default function App() {
     setDefense(current => ({ ...current, ew: Math.max(0, current.ew - 25) }));
     setIncomingThreat(current => current ? { ...current, jammed: true, accuracy: Math.max(.12, current.accuracy - .34) } : current);
     setEvent(incomingThreat.kind === 'airraid' ? '電子戦妨害を開始 — 敵F-35Bの照準・データリンク精度を低下' : '電子戦妨害を開始 — 敵誘導精度を低下');
-  }, [incomingThreat, defense.ew]);
+    audioEngine.play('ew');
+  }, [incomingThreat, defense.ew, audioEngine]);
 
   const deployDecoy = useCallback(() => {
     if (!incomingThreat || incomingThreat.decoy || defense.decoys <= 0) return;
     setDefense(current => ({ ...current, decoys: Math.max(0, current.decoys - 1) }));
     setIncomingThreat(current => current ? { ...current, decoy: true, accuracy: Math.max(.08, current.accuracy - .3) } : current);
     setEvent(incomingThreat.kind === 'torpedo' ? `音響囮を展開 — ${incomingThreat.targetCode}から魚雷を誘引` : incomingThreat.kind === 'airraid' ? `回避支援を開始 — ${incomingThreat.targetCode}が煙幕・急旋回を実施` : `デコイ展開 — ${incomingThreat.targetCode}から誘導を逸らします`);
-  }, [incomingThreat, defense.decoys]);
-
-  const ping = useCallback(() => {
-    try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      audioRef.current ||= new AudioCtx();
-      const ctx = audioRef.current;
-      const osc = ctx.createOscillator(); const gain = ctx.createGain();
-      osc.type = 'sawtooth'; osc.frequency.setValueAtTime(190, ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(70, ctx.currentTime + .25);
-      gain.gain.setValueAtTime(.08, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + .3);
-      osc.connect(gain).connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + .3);
-    } catch { /* audio is optional */ }
-  }, []);
+    audioEngine.play('decoy');
+  }, [incomingThreat, defense.decoys, audioEngine]);
 
   const fire = useCallback(() => {
     if (briefingOpen || paused || cooldown > 0 || status !== 'active' || selected.hp <= 0) return;
@@ -1149,11 +1261,10 @@ export default function App() {
     setCombatStats(current => ({ fired: current.fired + 1, hits: current.hits + (hit ? 1 : 0), kills: current.kills + (killed ? 1 : 0) }));
     if (hit) setScore(current => current + damage * 10 + (killed ? 500 : 0));
     setShot({ id: Date.now(), from: { x: selected.x, y: selected.y }, to: { x: target.x + (hit ? 0 : 2.2), y: target.y + (hit ? 0 : 2.6) }, target: target.id, hit });
-    window.setTimeout(() => setShot(null), 1100);
+    window.setTimeout(() => setShot(null), 2000);
     setCooldown(3);
     setEvent(hit ? `${selected.code} ${weapon.name}命中 — ${target.code}に${damage}%有効打${killed ? '・目標無力化' : ''}` : `${selected.code} ${weapon.name}発射 — ${target.code}への攻撃は外れ`);
-    ping();
-  }, [briefingOpen, paused, cooldown, status, selected, selectedWeapon, selectedTarget, targetDistance, weaponProfile.range, targetChance, ping, launchAirMission]);
+  }, [briefingOpen, paused, cooldown, status, selected, selectedWeapon, selectedTarget, targetDistance, weaponProfile.range, targetChance, launchAirMission]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -1219,6 +1330,164 @@ export default function App() {
     });
   }, []);
 
+  const requestCloudSignIn = useCallback(async email => {
+    setCloudBusy(true);
+    setCloudMessage('');
+    try {
+      await sendMagicLink(email);
+      setCloudMessage('認証メールを送信しました。メール内のリンクを開いてください。');
+    } catch (error) {
+      setCloudMessage(`認証メールを送信できません: ${error.message}`);
+    } finally {
+      setCloudBusy(false);
+    }
+  }, []);
+
+  const requestCloudSignOut = useCallback(async () => {
+    setCloudBusy(true);
+    try {
+      await signOutCloud();
+      setCloudMessage('クラウドからログアウトしました。ローカルデータは維持されます。');
+      setCloudLastSyncedAt(null);
+    } catch (error) {
+      setCloudMessage(`ログアウトできません: ${error.message}`);
+    } finally {
+      setCloudBusy(false);
+    }
+  }, []);
+
+  const syncStateToCloud = useCallback(async (battleSnapshot = savedBattle, quiet = false) => {
+    const userId = cloudSession?.user?.id;
+    if (!userId) {
+      if (!quiet) setCloudMessage('先にメールでサインインしてください。');
+      return false;
+    }
+    setCloudBusy(true);
+    if (!quiet) setCloudMessage('クラウドへ保存中…');
+    try {
+      const syncedAt = new Date().toISOString();
+      const result = await uploadCloudState(userId, { version: 1, profile, battle: battleSnapshot, syncedAt });
+      setCloudLastSyncedAt(result.updated_at ?? syncedAt);
+      setCloudMessage(quiet ? '戦闘保存をクラウドへ同期しました。' : '戦績と戦闘保存をクラウドへ同期しました。');
+      return true;
+    } catch (error) {
+      setCloudMessage(`クラウド保存に失敗しました: ${error.message}`);
+      return false;
+    } finally {
+      setCloudBusy(false);
+    }
+  }, [cloudSession?.user?.id, profile, savedBattle]);
+
+  const syncStateFromCloud = useCallback(async () => {
+    const userId = cloudSession?.user?.id;
+    if (!userId) {
+      setCloudMessage('先にメールでサインインしてください。');
+      return;
+    }
+    setCloudBusy(true);
+    setCloudMessage('クラウドから復元中…');
+    try {
+      const result = await downloadCloudState(userId);
+      if (!result?.save_data || result.save_data.version !== 1) {
+        setCloudMessage('クラウドに保存データがありません。');
+        return;
+      }
+      const restoredProfile = normalizeProfile(result.save_data.profile);
+      const restoredBattle = normalizeSavedBattle(result.save_data.battle);
+      setProfile(restoredProfile);
+      setSavedBattle(restoredBattle);
+      window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(restoredProfile));
+      if (restoredBattle) window.localStorage.setItem(BATTLE_STORAGE_KEY, JSON.stringify(restoredBattle));
+      else window.localStorage.removeItem(BATTLE_STORAGE_KEY);
+      setCloudLastSyncedAt(result.updated_at ?? result.save_data.syncedAt ?? null);
+      setCloudMessage(restoredBattle ? '戦績と戦闘保存を復元しました。「戦闘を再開」から続行できます。' : 'クラウドの戦績を復元しました。');
+    } catch (error) {
+      setCloudMessage(`クラウド復元に失敗しました: ${error.message}`);
+    } finally {
+      setCloudBusy(false);
+    }
+  }, [cloudSession?.user?.id]);
+
+  const discardSavedBattle = useCallback(() => {
+    try { window.localStorage.removeItem(BATTLE_STORAGE_KEY); } catch { /* private browsing or storage quota */ }
+    setSavedBattle(null);
+  }, []);
+
+  const saveBattle = useCallback(() => {
+    if (briefingOpen || status !== 'active') return;
+    const storedAirWing = airWing.status === 'attack' ? { ...airWing, status: 'returning', phase: 0 } : airWing;
+    const storedThreat = incomingThreat && incomingThreat.eta > 0 ? incomingThreat : null;
+    const snapshot = {
+      version: 1,
+      savedAt: Date.now(),
+      payload: {
+        scenarioId, difficultyId, activeCampaignId, ships, selectedId, targetId, weaponId,
+        cooldown, clock, score, combatStats, formation, waypoint, incomingThreat: storedThreat,
+        defense, defenseStats, airWing: storedAirWing, airStats, sonarPing, sonarCooldown,
+        aswStats, damageControl, dcCooldown,
+        resolvedThreatIds: [...resolvedThreatsRef.current].filter(id => id !== storedThreat?.id),
+        resolvedSortieIds: storedAirWing.status === 'returning' ? [] : [...resolvedSortiesRef.current],
+      },
+    };
+    try {
+      window.localStorage.setItem(BATTLE_STORAGE_KEY, JSON.stringify(snapshot));
+      setSavedBattle(snapshot);
+      setEvent(`戦闘状況を保存 — ${SCENARIOS[scenarioId].code} 戦術時間 ${formatMissionTime(clock)}`);
+      audioEngine.play('ui');
+      if (cloudSession?.user?.id) void syncStateToCloud(snapshot, true);
+    } catch {
+      setEvent('保存失敗 — ブラウザの保存領域を利用できません');
+    }
+  }, [activeCampaignId, airStats, airWing, aswStats, audioEngine, briefingOpen, clock, cloudSession?.user?.id, combatStats, cooldown, damageControl, dcCooldown, defense, defenseStats, difficultyId, formation, incomingThreat, scenarioId, score, selectedId, ships, sonarCooldown, sonarPing, status, syncStateToCloud, targetId, waypoint, weaponId]);
+
+  const resumeBattle = useCallback(() => {
+    const payload = savedBattle?.payload;
+    if (!payload || !SCENARIOS[payload.scenarioId] || !DIFFICULTIES[payload.difficultyId] || !Array.isArray(payload.ships)) {
+      discardSavedBattle();
+      return;
+    }
+    const restoredAirWing = payload.airWing?.status === 'attack'
+      ? { ...payload.airWing, status: 'returning', phase: 0 }
+      : payload.airWing ?? initialAirWing();
+    const restoredThreats = new Set(payload.resolvedThreatIds ?? []);
+    if (payload.incomingThreat?.id) restoredThreats.delete(payload.incomingThreat.id);
+    setScenarioId(payload.scenarioId);
+    setDifficultyId(payload.difficultyId);
+    setActiveCampaignId(CAMPAIGN_OPERATIONS.some(operation => operation.id === payload.activeCampaignId) ? payload.activeCampaignId : null);
+    setShips(payload.ships);
+    setSelectedId(payload.selectedId ?? 'burke');
+    setTargetId(payload.targetId ?? 'daring');
+    setWeaponId(payload.weaponId ?? 'sm2');
+    setCooldown(payload.cooldown ?? 0);
+    setClock(payload.clock ?? 0);
+    setScore(payload.score ?? 0);
+    setCombatStats(payload.combatStats ?? { fired: 0, hits: 0, kills: 0 });
+    setFormation(payload.formation === 'ring' ? 'ring' : 'line');
+    setWaypoint(payload.waypoint ?? null);
+    setIncomingThreat(payload.incomingThreat ?? null);
+    setDefense(payload.defense ?? startingDefense(profile.upgrades.defense));
+    setDefenseStats(payload.defenseStats ?? { intercepts: 0, evades: 0, hits: 0 });
+    setAirWing(restoredAirWing);
+    setAirStats(payload.airStats ?? { sorties: 0, hits: 0, cap: 0 });
+    setSonarPing(payload.sonarPing ?? 0);
+    setSonarCooldown(payload.sonarCooldown ?? 0);
+    setAswStats(payload.aswStats ?? { pings: 0, contacts: 0 });
+    setDamageControl(payload.damageControl ?? startingDamageControl(profile.upgrades.damage));
+    setDcCooldown(payload.dcCooldown ?? 0);
+    setShot(null);
+    setDefenseEffect(null);
+    setLastRewards(null);
+    setTutorialOpen(false);
+    setTutorialStep(0);
+    setPaused(true);
+    setBriefingOpen(false);
+    resolvedThreatsRef.current = restoredThreats;
+    resolvedSortiesRef.current = new Set(payload.resolvedSortieIds ?? []);
+    missionRecordedRef.current = false;
+    setEvent(`保存データを復元 — ${SCENARIOS[payload.scenarioId].code} 戦術時間 ${formatMissionTime(payload.clock ?? 0)}`);
+    audioEngine.play('start');
+  }, [audioEngine, discardSavedBattle, profile.upgrades.damage, profile.upgrades.defense, savedBattle]);
+
   const resetExercise = useCallback((showBriefing = false) => {
     setShips(initialShips()); setSelectedId('burke'); setTargetId('daring'); setWeaponId('sm2'); setPaused(false); setCooldown(0); setClock(0); setScore(0);
     setCombatStats({ fired: 0, hits: 0, kills: 0 }); setFormation('line'); setWaypoint(null); setIncomingThreat(null);
@@ -1229,6 +1498,8 @@ export default function App() {
   }, [scenarioId, campaignOperation, profile.upgrades.defense, profile.upgrades.damage]);
   const restart = useCallback(() => resetExercise(false), [resetExercise]);
   const startExercise = useCallback(() => {
+    audioEngine.play('start');
+    discardSavedBattle();
     resetExercise(false);
     if (!profile.tutorialSeen) {
       tutorialWasPausedRef.current = false;
@@ -1236,18 +1507,45 @@ export default function App() {
       setTutorialOpen(true);
       setPaused(true);
     }
-  }, [resetExercise, profile.tutorialSeen]);
+  }, [audioEngine, discardSavedBattle, resetExercise, profile.tutorialSeen]);
   const openScenarioSelection = useCallback(() => resetExercise(true), [resetExercise]);
+  const toggleAudio = useCallback(() => {
+    setAudioEnabled(current => {
+      const next = !current;
+      audioEngine.setMuted(!next);
+      if (next) audioEngine.play('ui');
+      return next;
+    });
+  }, [audioEngine]);
+
+  useEffect(() => {
+    if (!briefingOpen && status !== 'active' && savedBattle) discardSavedBattle();
+  }, [briefingOpen, discardSavedBattle, savedBattle, status]);
+
+  const cloudPanel = useMemo(() => ({
+    configured: cloudSyncConfigured,
+    session: cloudSession,
+    busy: cloudBusy,
+    message: cloudMessage,
+    lastSyncedAt: cloudLastSyncedAt,
+    onSignIn: requestCloudSignIn,
+    onSignOut: requestCloudSignOut,
+    onUpload: syncStateToCloud,
+    onDownload: syncStateFromCloud,
+  }), [cloudBusy, cloudLastSyncedAt, cloudMessage, cloudSession, requestCloudSignIn, requestCloudSignOut, syncStateFromCloud, syncStateToCloud]);
 
   return (
-    <main className={`game-shell ${incomingThreat ? 'threat-active' : ''} ${(selected.fire ?? 0) > 0 || (selected.flooding ?? 0) > 0 ? 'casualty-active' : ''}`}>
+    <main className={`game-shell ${incomingThreat ? 'threat-active' : ''} ${(selected.fire ?? 0) > 0 || (selected.flooding ?? 0) > 0 ? 'casualty-active' : ''} ${shot?.hit ? 'ordnance-impact' : shot ? 'ordnance-active' : ''} ${defenseEffect?.type === 'impact' ? 'incoming-impact' : ''}`}>
       <div className="ocean-layer" aria-hidden="true" />
+      <div className="combat-atmosphere" aria-hidden="true"><i/><i/><i/></div>
       <header className="topbar">
         <div className="wordmark"><span className="mark">PS</span><strong>PACIFIC SHIELD</strong></div>
         <div className="top-stat"><span>{campaignOperation ? `${campaignOperation.code} · ${campaignOperation.name}` : `${scenario.code} · ${scenario.name}`}</span></div>
         <div className="top-stat weather"><span>17°C</span><span>風向 248°</span><span>風速 18kt</span></div>
         <div className="top-stat sea-state"><span>海況 3</span></div>
         <div className="combat-score"><span>SCORE</span><b>{String(evaluatedScore).padStart(5, '0')}</b><small>{difficulty.name} · HIT {accuracy}%</small></div>
+        {!briefingOpen && status === 'active' ? <button className="save-button" onClick={saveBattle} aria-label="戦闘途中の状態を保存" title="戦闘を保存"><Icon name="save" size={17}/><span>保存</span></button> : null}
+        <button className={`audio-button ${audioEnabled ? 'enabled' : 'muted'}`} onClick={toggleAudio} aria-pressed={audioEnabled} aria-label={audioEnabled ? '音響を消音' : '音響を有効化'} title={audioEnabled ? '音響 ON' : '音響 OFF'}><Icon name={audioEnabled ? 'audio' : 'muted'} size={18}/><span>{audioEnabled ? 'SOUND' : 'MUTED'}</span></button>
         <button className="guide-button" onClick={openTutorial}><Icon name="target" size={17}/><span>操作ガイド</span></button>
         <button className="pause-button" onClick={() => setPaused(p => !p)}>{paused ? <Icon name="play"/> : <Icon name="pause"/>}<span>{paused ? '再開' : '一時停止'}</span></button>
       </header>
@@ -1270,7 +1568,7 @@ export default function App() {
           return <BattleShip key={ship.id} ship={ship} selected={false} targeted={ship.id === selectedTarget?.id} threatened={false} onSelect={selectShip} onTarget={selectTarget} />;
         })}
         {waypoint ? <div className={`destination-marker ${formationSettled ? 'settled' : ''}`} style={{ left: `${waypoint.x}%`, top: `${waypoint.y}%` }} aria-label={`移動目標地点 ${formationSettled ? '到着' : '航行中'}`}><Icon name="waypoint" size={28}/><span>{formationSettled ? 'ON STATION' : 'WAYPOINT'}</span></div> : null}
-        {shot ? <><span key={shot.id} className="projectile" style={{ '--x1': `${shot.from.x}%`, '--y1': `${shot.from.y}%`, '--x2': `${shot.to.x}%`, '--y2': `${shot.to.y}%` }} /><span className={`impact ${shot.hit ? '' : 'miss'}`} style={{ left: `${shot.to.x}%`, top: `${shot.to.y}%` }} /></> : null}
+        {shot ? <><span key={shot.id} className="launch-bloom" style={{ left: `${shot.from.x}%`, top: `${shot.from.y}%` }}><i/><i/></span><span className="projectile" style={{ '--x1': `${shot.from.x}%`, '--y1': `${shot.from.y}%`, '--x2': `${shot.to.x}%`, '--y2': `${shot.to.y}%` }} /><span className={`impact ${shot.hit ? '' : 'miss'}`} style={{ left: `${shot.to.x}%`, top: `${shot.to.y}%` }}><i/><i/><i/><b/></span></> : null}
         {incomingThreat && currentThreatPosition ? <div className={`incoming-missile ${incomingThreat.kind ?? 'missile'} ${incomingThreat.jammed ? 'jammed' : ''}`} style={{ left: `${currentThreatPosition.x}%`, top: `${currentThreatPosition.y}%` }} aria-label={`敵${incomingThreat.kind === 'torpedo' ? '魚雷' : incomingThreat.kind === 'airraid' ? `F-35B ${incomingThreat.aircraft}機` : 'ミサイル'}接近、攻撃まで${incomingThreat.eta}秒`}><Icon name={incomingThreat.kind === 'torpedo' ? 'sonar' : incomingThreat.kind === 'airraid' ? 'aircraft' : 'missile'} size={19}/><span>{incomingThreat.eta}</span>{incomingThreat.kind === 'airraid' ? <b className="raid-count">{incomingThreat.aircraft}機</b> : null}</div> : null}
         {incomingThreat?.decoy ? <div className={`decoy-cloud ${incomingThreat.kind ?? ''}`} style={{ left: `${incomingThreat.end.x}%`, top: `${incomingThreat.end.y}%` }} aria-label={incomingThreat.kind === 'torpedo' ? '音響囮展開中' : 'デコイ展開中'}><i/><i/><i/><span>{incomingThreat.kind === 'torpedo' ? 'ACOUSTIC' : 'DECOY'}</span></div> : null}
         {defenseEffect ? <div className={`defense-effect ${defenseEffect.type}`} style={{ left: `${defenseEffect.x}%`, top: `${defenseEffect.y}%` }} aria-hidden="true"><Icon name={defenseEffect.type === 'intercept' ? 'shield' : defenseEffect.type === 'air-intercept' ? 'aircraft' : 'missile'} size={24}/></div> : null}
@@ -1284,7 +1582,7 @@ export default function App() {
 
       {paused && !briefingOpen && !tutorialOpen && status === 'active' ? <div className="pause-overlay"><span>PAUSED</span><strong>戦術時間停止</strong><small>P または「再開」で続行</small></div> : null}
       {!briefingOpen && status !== 'active' ? <div className={`result-overlay ${status}`}><Icon name={status === 'victory' ? 'target' : 'crosshair'} size={42}/><span>EXERCISE COMPLETE · {campaignOperation?.code ?? scenario.code}</span><strong>{status === 'victory' ? scenario.objective : '任務続行不能'}</strong><p>{status === 'victory' ? `${campaignOperation?.name ?? scenario.name}の任務目標を達成しました。` : '護衛対象またはBLUE CELL戦力が行動不能です。'}</p><div className="result-stats"><span>評価 <b>{grade}</b></span><span>得点 <b>{evaluatedScore}</b></span><span>命中率 <b>{accuracy}%</b></span><span>無力化 <b>{combatStats.kills}</b></span></div>{lastRewards ? <div className="mission-rewards"><span>MISSION REWARDS</span><b>+{lastRewards.xp} XP</b><b>+{lastRewards.credits} PT</b>{lastRewards.campaign ? <em>{'★'.repeat(lastRewards.campaign.stars)} {lastRewards.campaign.name}</em> : null}{lastRewards.medals.map(id => <em key={id}>{MEDALS[id].mark} {MEDALS[id].name}</em>)}</div> : null}<div className="result-actions"><button onClick={restart}><Icon name="restart"/>再演習</button><button onClick={openScenarioSelection}><Icon name="target"/>シナリオ選択</button></div></div> : null}
-      {briefingOpen ? <ScenarioBriefing scenarioId={scenarioId} difficultyId={difficultyId} activeCampaignId={activeCampaignId} profile={profile} onScenario={selectFreeScenario} onDifficulty={setDifficultyId} onCampaign={selectCampaignOperation} onUpgrade={upgradeFleet} onTutorial={openTutorial} onStart={startExercise} /> : null}
+      {briefingOpen ? <ScenarioBriefing scenarioId={scenarioId} difficultyId={difficultyId} activeCampaignId={activeCampaignId} profile={profile} savedBattle={savedBattle} cloud={cloudPanel} onScenario={selectFreeScenario} onDifficulty={setDifficultyId} onCampaign={selectCampaignOperation} onUpgrade={upgradeFleet} onTutorial={openTutorial} onStart={startExercise} onResume={resumeBattle} /> : null}
       {tutorialOpen ? <TutorialOverlay stepIndex={tutorialStep} onStep={goTutorialStep} onClose={closeTutorial} /> : null}
     </main>
   );
