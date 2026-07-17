@@ -743,6 +743,453 @@ button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
   .tutorial-shell > footer button { height: 36px; font-size: 8px; }
 }
 
+/* Decluttered tactical HUD: keep the ocean as the primary canvas. */
+.game-shell {
+  --left-rail: 224px;
+  --right-rail: 252px;
+  --bottom-deck: 158px;
+}
+
+.topbar {
+  padding-right: 10px;
+}
+
+.wordmark {
+  min-width: 230px;
+  padding-left: 16px;
+  padding-right: 18px;
+}
+
+.top-stat {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.top-stat.weather,
+.top-stat.sea-state {
+  display: none;
+}
+
+.combat-score {
+  margin-left: auto;
+}
+
+.left-hud-stack,
+.right-hud-stack {
+  position: absolute;
+  z-index: 14;
+  top: 66px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.left-hud-stack {
+  left: 12px;
+  bottom: calc(var(--bottom-deck) + 12px);
+  width: var(--left-rail);
+}
+
+.right-hud-stack {
+  right: 12px;
+  bottom: 222px;
+  width: var(--right-rail);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(166,203,214,.45) rgba(255,255,255,.04);
+}
+
+.left-hud-stack > *,
+.right-hud-stack > * {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  transform: none;
+  pointer-events: auto;
+}
+
+.left-hud-stack > .fleet-panel,
+.left-hud-stack > .detail-panel,
+.right-hud-stack > .target-panel,
+.right-hud-stack > .defense-panel,
+.right-hud-stack > .air-wing-panel,
+.right-hud-stack > .submarine-panel,
+.right-hud-stack > .damage-control-panel {
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: 100%;
+}
+
+.left-hud-stack .panel-heading {
+  height: 31px;
+  padding-inline: 10px;
+  font-size: 11px;
+}
+
+.left-hud-stack .fleet-row {
+  height: 58px;
+  padding: 8px 9px 7px;
+}
+
+.left-hud-stack .fleet-identity {
+  gap: 7px;
+}
+
+.left-hud-stack .fleet-identity strong {
+  font-size: 12px;
+}
+
+.left-hud-stack .fleet-identity small {
+  width: 148px;
+  margin-top: 3px;
+  font-size: 8px;
+}
+
+.left-hud-stack .ship-type {
+  display: none;
+}
+
+.left-hud-stack .readiness {
+  right: 9px;
+  bottom: 8px;
+  font-size: 6px;
+}
+
+.left-hud-stack .health-track {
+  left: 34px;
+  right: 9px;
+  bottom: 5px;
+}
+
+.left-hud-stack > .detail-panel {
+  max-height: 238px;
+}
+
+.left-hud-stack .detail-title {
+  height: 42px;
+  padding-inline: 10px;
+}
+
+.left-hud-stack .detail-title strong {
+  font-size: 13px;
+}
+
+.left-hud-stack .detail-title div span {
+  max-width: 160px;
+  overflow: hidden;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.left-hud-stack .ship-portrait {
+  height: 58px;
+}
+
+.left-hud-stack .ship-portrait img {
+  max-height: 52px;
+}
+
+.left-hud-stack .detail-panel section:nth-of-type(n + 2) {
+  display: none;
+}
+
+.left-hud-stack .detail-panel section h3 {
+  height: 22px;
+  padding-top: 5px;
+  font-size: 8px;
+}
+
+.left-hud-stack .info-row {
+  min-height: 21px;
+  padding: 4px 10px;
+  font-size: 9px;
+}
+
+.left-hud-stack .mini-meter {
+  left: 67px;
+  right: 10px;
+}
+
+.right-hud-stack .target-panel,
+.right-hud-stack .defense-panel,
+.right-hud-stack .air-wing-panel,
+.right-hud-stack .submarine-panel,
+.right-hud-stack .damage-control-panel {
+  padding: 8px 9px;
+}
+
+.right-hud-stack .target-name {
+  margin-top: 6px;
+  padding-bottom: 6px;
+}
+
+.right-hud-stack .target-metrics,
+.right-hud-stack .target-condition,
+.right-hud-stack .target-intent {
+  margin-top: 6px;
+}
+
+.right-hud-stack .defense-panel:not(.alert) {
+  border-color: rgba(59,209,119,.24);
+}
+
+.right-hud-stack .defense-panel:not(.alert) .defense-actions,
+.right-hud-stack .defense-panel:not(.alert) .defense-footer {
+  display: none;
+}
+
+.right-hud-stack .defense-clear {
+  height: 28px;
+  font-size: 9px;
+}
+
+.right-hud-stack .threat-readout {
+  height: 38px;
+}
+
+.right-hud-stack .defense-actions button {
+  height: 43px;
+}
+
+.right-hud-stack .air-wing-identity,
+.right-hud-stack .submarine-readout {
+  height: 36px;
+}
+
+.right-hud-stack .air-wing-meter {
+  min-height: 20px;
+}
+
+.right-hud-stack .air-wing-actions button {
+  height: 30px;
+  padding-inline: 5px;
+}
+
+.right-hud-stack .submarine-actions button {
+  height: 28px;
+}
+
+.right-hud-stack .damage-control-panel:not(.casualty) {
+  border-color: rgba(59,209,119,.24);
+}
+
+.right-hud-stack .damage-control-panel:not(.casualty) .damage-meters,
+.right-hud-stack .damage-control-panel:not(.casualty) .damage-actions,
+.right-hud-stack .damage-control-panel:not(.casualty) .damage-readout small {
+  display: none;
+}
+
+.right-hud-stack .damage-control-panel:not(.casualty) .damage-readout {
+  min-height: 25px;
+  border-bottom: 0;
+}
+
+.mission-card {
+  top: 64px;
+  width: 244px;
+  padding: 8px 11px;
+  background: linear-gradient(180deg, rgba(10,25,33,.82), rgba(4,14,20,.78));
+}
+
+.mission-card strong {
+  margin-top: 5px;
+  font-size: 12px;
+}
+
+.mission-card small {
+  display: none;
+}
+
+.command-deck {
+  width: min(900px, calc(100% - 560px));
+  height: 138px;
+  bottom: 12px;
+}
+
+.command-deck label {
+  height: 24px;
+  padding-top: 6px;
+}
+
+.throttle {
+  margin-top: 5px;
+}
+
+.throttle button {
+  height: 17px;
+}
+
+.speed-control output {
+  top: 61px;
+  font-size: 20px;
+}
+
+.heading-dial {
+  width: 68px;
+  height: 68px;
+  margin-top: 6px;
+}
+
+.heading-dial i {
+  height: 27px;
+  transform-origin: 50% 29px;
+}
+
+.heading-dial strong {
+  inset: 25px 0 auto;
+}
+
+.formation-control {
+  grid-template-rows: 24px 1fr;
+}
+
+.weapons > div {
+  height: 113px;
+}
+
+.weapons button {
+  padding-top: 10px;
+  gap: 6px;
+}
+
+.fire-button {
+  margin-block: 18px;
+}
+
+.event-log {
+  bottom: 158px;
+  width: min(620px, calc(100% - 590px));
+}
+
+.radar {
+  right: 42px;
+  bottom: 22px;
+  width: 176px;
+}
+
+@media (max-width: 1120px) {
+  .game-shell {
+    --left-rail: 198px;
+    --right-rail: 218px;
+    --bottom-deck: 142px;
+  }
+
+  .left-hud-stack {
+    left: 8px;
+    bottom: calc(var(--bottom-deck) + 10px);
+  }
+
+  .right-hud-stack {
+    right: 8px;
+    bottom: 188px;
+  }
+
+  .left-hud-stack > .detail-panel {
+    display: none;
+  }
+
+  .left-hud-stack .fleet-row {
+    height: 54px;
+  }
+
+  .command-deck {
+    left: calc(var(--left-rail) + 18px);
+    width: calc(100% - var(--left-rail) - var(--right-rail) - 46px);
+    height: 128px;
+    transform: none;
+  }
+
+  .event-log {
+    left: calc(var(--left-rail) + 18px);
+    width: calc(100% - var(--left-rail) - var(--right-rail) - 46px);
+    min-width: 0;
+    transform: none;
+  }
+
+  .radar {
+    width: 142px;
+    right: 46px;
+    bottom: 22px;
+  }
+}
+
+@media (max-width: 760px) {
+  .game-shell {
+    --bottom-deck: 116px;
+  }
+
+  .pause-button {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .pause-button span {
+    display: none;
+  }
+
+  .left-hud-stack {
+    top: 52px;
+    right: 8px;
+    bottom: auto;
+    width: auto;
+    max-height: 68px;
+  }
+
+  .left-hud-stack .fleet-list {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .left-hud-stack .fleet-row {
+    flex: 0 0 126px;
+    height: 58px;
+  }
+
+  .right-hud-stack {
+    top: 126px;
+    right: 8px;
+    bottom: 198px;
+    width: 196px;
+  }
+
+  .right-hud-stack .air-wing-meter > small,
+  .right-hud-stack .submarine-heading small {
+    display: none;
+  }
+
+  .mission-card {
+    display: none;
+  }
+
+  .radar {
+    top: 126px;
+    right: auto;
+    bottom: auto;
+    left: 8px;
+    width: 116px;
+  }
+
+  .command-deck {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    height: 116px;
+  }
+
+  .event-log {
+    left: 8px;
+    right: 8px;
+    bottom: 194px;
+    width: auto;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
 }

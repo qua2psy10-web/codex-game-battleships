@@ -140,6 +140,7 @@ const TUTORIAL_STEPS = [
   { id: 'defense', icon: 'shield', eyebrow: 'STEP 05 · DEFENSE', title: '接近脅威へ即応', body: 'ミサイル・航空攻撃には迎撃、電子戦、デコイを組み合わせます。魚雷には迎撃弾や電子戦が使えないため、音響囮で回避します。', tip: '警報の残り秒数と有限の防御資源を確認してください。', controls: [['I', '迎撃'], ['E', '電子戦'], ['C', 'デコイ']] },
   { id: 'asw', icon: 'sonar', eyebrow: 'STEP 06 · SURVIVE', title: '対潜戦と損傷統制', body: 'SS-511の深度・静粛航行を管理し、アクティブソナーで敵潜水艦を識別します。被弾後は消火・排水・応急修理で戦闘力を維持します。', tip: '準備完了です。任務目標を達成し、艦隊を生還させてください。', controls: [['Q', 'ソナー'], ['Z / X', '深度・静粛'], ['P', '一時停止']] },
 ];
+const initialTargetIdForScenario = scenarioId => scenarioId === 'asw' ? 'dosan' : scenarioId === 'carrier' ? 'queen' : 'daring';
 const rankForXp = (xp) => {
   if (xp >= 2500) return { name: 'ADMIRAL', label: '提督', next: null };
   if (xp >= 1400) return { name: 'CAPTAIN', label: '大佐', next: 2500 };
@@ -679,8 +680,9 @@ export default function App() {
   }, [aliveEnemies, contactStates]);
   const selectedTarget = useMemo(() => {
     const requested = ships.find(ship => ship.id === targetId && ship.hp > 0 && contactStates.get(ship.id)?.state === 'confirmed');
+    if (scenarioId === 'asw' && targetId === 'dosan') return requested ?? null;
     return requested ?? confirmedEnemies[0];
-  }, [ships, targetId, contactStates, confirmedEnemies]);
+  }, [ships, targetId, contactStates, confirmedEnemies, scenarioId]);
   const selectedWeapon = useMemo(() => selected.weapons.find(w => w.id === weaponId) ?? selected.weapons[0], [selected, weaponId]);
   const weaponProfile = useMemo(() => getWeaponProfile(selectedWeapon), [selectedWeapon]);
   const carrier = useMemo(() => blueShips.find(ship => ship.id === 'ford'), [blueShips]);
@@ -1489,7 +1491,7 @@ export default function App() {
   }, [audioEngine, discardSavedBattle, profile.upgrades.damage, profile.upgrades.defense, savedBattle]);
 
   const resetExercise = useCallback((showBriefing = false) => {
-    setShips(initialShips()); setSelectedId('burke'); setTargetId('daring'); setWeaponId('sm2'); setPaused(false); setCooldown(0); setClock(0); setScore(0);
+    setShips(initialShips()); setSelectedId('burke'); setTargetId(initialTargetIdForScenario(scenarioId)); setWeaponId('sm2'); setPaused(false); setCooldown(0); setClock(0); setScore(0);
     setCombatStats({ fired: 0, hits: 0, kills: 0 }); setFormation('line'); setWaypoint(null); setIncomingThreat(null);
     setDefense(startingDefense(profile.upgrades.defense)); setDefenseStats({ intercepts: 0, evades: 0, hits: 0 }); setDefenseEffect(null);
     setAirWing(initialAirWing()); setAirStats({ sorties: 0, hits: 0, cap: 0 }); setSonarPing(0); setSonarCooldown(0); setAswStats({ pings: 0, contacts: 0 });
@@ -1551,13 +1553,17 @@ export default function App() {
       </header>
 
       <div className="mission-card hud-panel"><span>任務目標</span><strong><Icon name="target" size={16}/>{scenario.objective}</strong><div><i style={{ width: `${progress}%` }} /></div><small>{missionProgress}</small></div>
-      <FleetRail ships={blueShips} selectedId={selectedId} onSelect={selectShip} />
-      <ShipDetails ship={selected} />
-      {selectedTarget ? <TargetPanel target={selectedTarget} distance={targetDistance} chance={targetChance} intentTargetCode={intentTargetCode} /> : null}
-      <DefensePanel threat={incomingThreat} defense={defense} stats={defenseStats} onIntercept={interceptThreat} onJam={jamThreat} onDecoy={deployDecoy} />
-      <AirWingPanel wing={airWing} stats={airStats} carrierReady={flightDeckReady} strikeReady={Boolean(selectedTarget)} onLaunch={launchAirMission} />
-      {oryu ? <SubmarinePanel submarine={oryu} sonarPing={sonarPing} sonarCooldown={sonarCooldown} contact={submarineContact} stats={aswStats} onDepth={changeSubmarineDepth} onSilent={toggleSilentRunning} onPing={activateSonar} /> : null}
-      <DamageControlPanel ship={selected} resources={damageControl} cooldown={dcCooldown} onDrill={startDamageDrill} onFire={extinguishFire} onPump={dewaterShip} onRepair={emergencyRepair} />
+      <div className="left-hud-stack" aria-label="艦隊管制">
+        <FleetRail ships={blueShips} selectedId={selectedId} onSelect={selectShip} />
+        <ShipDetails ship={selected} />
+      </div>
+      <div className="right-hud-stack" aria-label="戦術システム">
+        {selectedTarget ? <TargetPanel target={selectedTarget} distance={targetDistance} chance={targetChance} intentTargetCode={intentTargetCode} /> : null}
+        <DefensePanel threat={incomingThreat} defense={defense} stats={defenseStats} onIntercept={interceptThreat} onJam={jamThreat} onDecoy={deployDecoy} />
+        <AirWingPanel wing={airWing} stats={airStats} carrierReady={flightDeckReady} strikeReady={Boolean(selectedTarget)} onLaunch={launchAirMission} />
+        {oryu ? <SubmarinePanel submarine={oryu} sonarPing={sonarPing} sonarCooldown={sonarCooldown} contact={submarineContact} stats={aswStats} onDepth={changeSubmarineDepth} onSilent={toggleSilentRunning} onPing={activateSonar} /> : null}
+        <DamageControlPanel ship={selected} resources={damageControl} cooldown={dcCooldown} onDrill={startDamageDrill} onFire={extinguishFire} onPump={dewaterShip} onRepair={emergencyRepair} />
+      </div>
 
       <section className="battlefield" aria-label="戦闘海域。空いている海面をクリックして艦隊移動" onClick={commandWaypoint}>
         {ships.map(ship => {
